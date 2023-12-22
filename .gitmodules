@@ -1,0 +1,4 @@
+[submodule "kernel"]
+	path = kernel
+	url = https://github.com/creinwar/FreeRTOS-Kernel.git
+	branch = creinwar/smode
