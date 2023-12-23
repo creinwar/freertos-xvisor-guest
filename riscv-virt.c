@@ -63,3 +63,24 @@ void handle_trap(void)
 	while (1)
 		;
 }
+
+void write32(void *addr, uint32_t val)
+{
+	__asm volatile(
+		"sw %0, 0(%1)\n"
+		:: "r"(val), "r"(addr)
+		:
+	);
+}
+
+uint32_t read32(void *addr)
+{
+	uint32_t val = 0;
+	__asm volatile(
+		"lw %0, 0(%1)\n"
+		: "=r"(val)
+		: "r"(addr)
+		:
+	);
+	return val;
+}

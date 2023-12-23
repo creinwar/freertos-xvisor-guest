@@ -37,17 +37,22 @@
 
 #define PRIM_HART			0
 
-#define CLINT_ADDR			CONS(0x02000000, UL)
-#define CLINT_MSIP			CONS(0x0000, UL)
-#define CLINT_MTIMECMP		CONS(0x4000, UL)
-#define CLINT_MTIME			CONS(0xbff8, UL)
+#define PLIC_ADDR       CONS(0x0c000000, UL)
+#define PLIC_ADDR_PTR   ((uint8_t *) PLIC_ADDR)
+#define PLIC(offset)    *((volatile uint32_t *) (((uint64_t) PLIC_ADDR) + (offset)))
 
-#define NS16550_ADDR		CONS(0x10000000, UL)
+#define RTC_ADDR        CONS(0x10003000, UL)
+#define RTC_ADDR_PTR    ((uint8_t *) RTC_ADDR)
+#define RTC(offset)     *((volatile uint32_t *) (((uint64_t) RTC_ADDR) + (offset)))
+
+#define NS16550_ADDR    CONS(0x10000000, UL)
 
 #ifndef __ASSEMBLER__
 
 int xGetCoreID( void );
 void vSendString( const char * s );
+void write32(void *addr, uint32_t val);
+uint32_t read32(void *addr);
 
 #endif /* __ASSEMBLER__ */
 

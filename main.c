@@ -29,9 +29,8 @@
 #include <stdio.h>
 #include <task.h>
 
-/* Run a simple demo just prints 'Blink' */
-#define DEMO_BLINKY	1
-#define mainVECTOR_MODE_DIRECT	1
+#include "goldfish_rtc.h"
+#include "isolation_bench.h"
 
 extern void freertos_risc_v_trap_handler( void );
 extern void freertos_vector_table( void );
@@ -41,31 +40,21 @@ void vApplicationIdleHook( void );
 void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName );
 void vApplicationTickHook( void );
 
-int main_blinky( void );
-
 void vPortSetupTimerInterrupt( void );
 
 /*-----------------------------------------------------------*/
 
 int main( void )
 {
-	int ret;
+	int ret = 0;
 	// trap handler initialization
-		#if( mainVECTOR_MODE_DIRECT == 1 )
-	{
-		__asm__ volatile( "csrw stvec, %0" :: "r"( freertos_risc_v_trap_handler ) );
-	}
-	#else
-	{
-		__asm__ volatile( "csrw stvec, %0" :: "r"( ( uintptr_t )freertos_vector_table | 0x1 ) );
-	}
-	#endif
+	__asm volatile(
+		"csrw stvec, %0\n"
+		:: "r"(freertos_risc_v_trap_handler)
+		:
+	);
 
-#if defined(DEMO_BLINKY)
-	ret = main_blinky();
-#else
-#error "Please add or select demo."
-#endif
+	ret = isolation_bench();
 
 	return ret;
 }
@@ -139,33 +128,34 @@ void vPortSetupTimerInterrupt( void )
 	vSendString("Setting up timer interrupt...");
 
 	// Set the Goldfish RTC timer
-	volatile uint32_t *plic = (volatile uint32_t *) 0x0c000000;
-	volatile uint32_t *rtc  = (volatile uint32_t *) 0x10003000;
 	uint64_t cur_time = 0, next_time = 0;
 
+	// Clear the RTC interrupt and alarm
+	goldfish_rtc_clear_alarm(RTC_ADDR_PTR);
+	goldfish_rtc_clear_interrupt(RTC_ADDR_PTR);
+
 	// Read out the current time
-	cur_time = ((uint64_t) rtc[1] << 32) | (uint64_t) rtc[0];
-	next_time = cur_time + 100000000UL;	// +100ms if this is in nanoseconds
+	cur_time = goldfish_rtc_read_time(RTC_ADDR_PTR);
+	next_time = cur_time + uxTimerIncrementsForOneTick;
 
 	// Set alarm
-	rtc[3] = (uint32_t) (next_time >> 32);
-	rtc[2] = (uint32_t) next_time;
+	goldfish_rtc_set_alarm(RTC_ADDR_PTR, next_time);
 
 	// Configure the PLIC - RTC is interrupt 11
 	// Priority
-	plic[11] = 1;
+	PLIC(11*4) = 1;
 
 	// Enable bit: 0 <= 11 <= 31
-	plic[0x2000/4] = (1 << 11); 
+	PLIC(0x2000) = (1 << 11);
 
-	// Enable interrupt
-	rtc[4] = 1;
+	// Enable RTC interrupt
+	goldfish_rtc_enable_interrupt(RTC_ADDR_PTR);
 
 	vSendString("Done");
 }
 
 // Generic interrupt handler, here taking care of the
-// Goldfish RTC interrupt
+// Goldfish RTC interrupt and software interrupt (i.e. yield)
 #if __riscv_xlen == 32
 void freertos_risc_v_application_interrupt_handler(uint32_t arch_scause, uint32_t arch_sepc)
 #else
@@ -174,8 +164,6 @@ void freertos_risc_v_application_interrupt_handler(uint64_t arch_scause, uint64_
 {
 	uint64_t scause = arch_scause, sepc = arch_sepc;
 	uint32_t irq_id = 0;
-	volatile uint32_t *plic = (volatile uint32_t *) 0x0c000000;
-	volatile uint32_t *rtc  = (volatile uint32_t *) 0x10003000;
 
 	// Silence compiler warnings about unused variables
 	(void) sepc;
@@ -190,25 +178,29 @@ void freertos_risc_v_application_interrupt_handler(uint64_t arch_scause, uint64_
 		:
 	);
 
+	// Software interrupt means yield
+	if(scause == 1){
+		vTaskSwitchContext();
+
 	// Was this an external interrupt?
-	if(scause == 9){
+	} else if(scause == 9) {
 		// Claim the interrupt from the PLIC
-		irq_id = plic[0x200004/4];
+		irq_id = PLIC(0x200004);
 
 		if(irq_id != 11){
 			// Just say it's done and halt
-			plic[0x200004/4] = irq_id;
+			PLIC(0x200004) = irq_id;
 			while(1){}
 
 		} else {
 			// Set the timer in the future and complete the IRQ
 			uint64_t cur_time = 0, next_time = 0;
 
-			// Clear interrupt register
-			rtc[7] = 1;
+			// Clear alarm
+			goldfish_rtc_clear_alarm(RTC_ADDR_PTR);
 
-			// Clear alarm register
-			rtc[5] = 1;
+			// Clear interrupt
+			goldfish_rtc_clear_interrupt(RTC_ADDR_PTR);
 
 			// Take care of the scheduling stuff
 			if(xTaskIncrementTick()){
@@ -216,19 +208,14 @@ void freertos_risc_v_application_interrupt_handler(uint64_t arch_scause, uint64_
 			}
 
 			// Read out the current time
-			cur_time = ((uint64_t) rtc[1] << 32) | (uint64_t) rtc[0];
-			next_time = cur_time + 100000000UL;	// +100ms if this is in nanoseconds
+			cur_time = goldfish_rtc_read_time(RTC_ADDR_PTR);
+			next_time = cur_time + uxTimerIncrementsForOneTick;
 
 			// Set alarm
-			rtc[3] = (uint32_t) (next_time >> 32);
-			rtc[2] = (uint32_t) next_time;			
-
-			plic[0x200004/4] = irq_id;
+			goldfish_rtc_set_alarm(RTC_ADDR_PTR, next_time);
+			PLIC(0x200004) = irq_id;
 		}
-	
-	// Software interrupt means yield
-	} else if (scause == 1) {
-		vTaskSwitchContext();
+
 	} else {
 		while(1){};
 	}

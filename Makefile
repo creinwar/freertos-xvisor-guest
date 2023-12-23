@@ -31,7 +31,7 @@ else
     CFLAGS += -O2
 endif
 
-SRCS = main.c main_blinky.c riscv-virt.c ns16550.c \
+SRCS = main.c goldfish_rtc.c isolation_bench.c riscv-virt.c ns16550.c \
 	$(RTOS_SOURCE_DIR)/event_groups.c \
 	$(RTOS_SOURCE_DIR)/list.c \
 	$(RTOS_SOURCE_DIR)/queue.c \

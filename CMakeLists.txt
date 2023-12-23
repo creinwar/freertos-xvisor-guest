@@ -133,10 +133,11 @@ target_compile_options(freertos_kernel PRIVATE
 add_executable(${PROJECT_NAME}
     start.S
     vector.S
+    goldfish_rtc.c
+    isolation_bench.c
+    main.c
     ns16550.c
     riscv-virt.c
-    main_blinky.c
-    main.c
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE
