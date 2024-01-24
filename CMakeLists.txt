@@ -133,6 +133,7 @@ target_compile_options(freertos_kernel PRIVATE
 add_executable(${PROJECT_NAME}
     start.S
     vector.S
+    tlb_access.S
     goldfish_rtc.c
     isolation_bench.c
     main.c

@@ -41,7 +41,7 @@ SRCS = main.c goldfish_rtc.c isolation_bench.c riscv-virt.c ns16550.c \
 	$(RTOS_SOURCE_DIR)/portable/MemMang/heap_4.c \
 	$(RTOS_SOURCE_DIR)/portable/GCC/RISC-V/port.c
 
-ASMS = start.S vector.S\
+ASMS = start.S vector.S tlb_access.S\
 	$(RTOS_SOURCE_DIR)/portable/GCC/RISC-V/portASM.S
 
 OBJS = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(ASMS:%.S=$(BUILD_DIR)/%.o)

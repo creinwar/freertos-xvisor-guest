@@ -106,13 +106,14 @@ SECTIONS
 		_ebss = .;
 	} > ram
 
-	. = ALIGN(8);
+	. = ALIGN(16);
 	_end = .;
 
-	.stack :
+	.stack ALIGN(16):
 	{
 		. = ALIGN(16);
 		. += __stack_size;
+		. = ALIGN(16);
 		_stack_top = .;
 	} > ram
 

@@ -18,118 +18,134 @@
 #include "goldfish_rtc.h"
 
 /* Priorities used by the tasks. */
-#define PROBE_TASK_PRIO	( tskIDLE_PRIORITY + 2 )
-#define	PRIME_TASK_PRIO	( tskIDLE_PRIORITY + 1 )
+#define PROBE_TASK_PRIO	( tskIDLE_PRIORITY )
 
-#define NUM_TLB_ENTRIES 16
-
-/*-----------------------------------------------------------*/
-
-/* The queue used by both tasks. */
-static QueueHandle_t queue = NULL;
-
-//static uint8_t __attribute__((align(4096))) shmem[4096*NUM_TLB_ENTRIES];
-static uint8_t shmem[4096*NUM_TLB_ENTRIES];
+#define NUM_TLB_ENTRIES 64
+#define NUM_TEST_ROUNDS 1000
+#define TIMESLICE_THRESH 1000000
 
 /*-----------------------------------------------------------*/
 
-//static void __attribute__((bare)) tlb_access(void *base, uint64_t num_pages, uint64_t descending)
-static void tlb_access(void *base, uint64_t num_pages, uint64_t descending)
+static uint8_t shmem[4096*(NUM_TLB_ENTRIES+1)];
+
+extern void tlb_access(void *base, uint64_t num_pages, uint64_t descending);
+
+/*-----------------------------------------------------------*/
+
+static inline uint64_t rdcycle(void)
 {
-    __asm volatile(
-        "add a0, x0, %0\n                                                           \
-        add a1, x0, %1\n                                                            \
-        add a2, x0, %2\n                                                            \
-        beq a1, x0, 2f /* Don't touch any pages? Sure! */\n                         \
-        /* Default increment: one 4k page in positive direction */\n                \
-        addi a3, x0, 1\n                                                            \
-        slli a3, a3, 12\n                                                           \
-        beq a2, x0, 1f  /* Ascending or do we have to update the base address? */\n \
-        addi t0, a1, -1\n                                                           \
-        slli t1, t0, 12\n                                                           \
-        add a0, a0, t1\n                                                            \
-        /* Increment: one 4k page in NEGATIVE direction */\n                        \
-        addi a3, x0, -1\n                                                           \
-        slli a3, a3, 12\n                                                           \
-1:\n                                                                                \
-        ld t2, 0(a0)  /* Access the page */\n                                       \
-        addi a1, a1, -1\n                                                           \
-        add a0, a0, a3\n                                                            \
-        blt x0, a1, 1b\n                                                            \
-2:\n                                                                                \
-        ret\n"
-        :: "r"(base), "r"(num_pages), "r"(descending)
-        :);
+	uint64_t cyc = 0;
+	__asm volatile(
+		"csrrs %0, cycle, x0\n"
+		: "=r"(cyc)
+		::
+	);
+	return cyc;
 }
 
-static void prime_task(void *pvParameters)
+static inline uint64_t read_clear_ctxt_swtch(void)
 {
-	const uint64_t tx_val = 0xDEADBEEFUL;
+	uint64_t cyc = 0;
+	__asm volatile(
+		"csrrci %0, 0x5DB, 1\n"
+		: "=r"(cyc)
+		::
+	);
+	return cyc & 1;
+}
 
-	vSendString("Entered prime task");
+static __attribute__((noinline)) void new_timeslice_rdcycle(void)
+{
+	uint64_t first = 0, second = 0;
 
-	/* Remove compiler warning about unused parameter. */
-	(void) pvParameters;
+	first = rdcycle();
+	while(1) {
+		second = rdcycle();
 
-	while(1){
+		if(second-first > TIMESLICE_THRESH)
+			return;
 
-		// Touch each page once
-		tlb_access(shmem, NUM_TLB_ENTRIES, 0);
-
-		// Signal to the probe task that we're done with priming
-		xQueueSend(queue, &tx_val, 0U);
+		first = second;
 	}
+}
+
+static __attribute__((noinline)) void new_timeslice_ctx_swtch(void)
+{
+	__asm volatile (
+		"csrrsi x0, 0x5DB, 2\n"
+		:::
+	);
+
+	while(!read_clear_ctxt_swtch()){}
+
+	__asm volatile (
+		"csrrci x0, 0x5DB, 2\n"
+		:::
+	);
 }
 
 /*-----------------------------------------------------------*/
 
 static void probe_task( void *pvParameters )
 {
-	char buf[255];
-	uint64_t queue_rx_val = 0;
+	char buf[256];
 	uint64_t pre_time = 0, post_time = 0;
 	uint64_t diff = 0, prev_diff = 0;
-	const uint64_t rx_val = 0xDEADBEEFUL;
-	int descending = 0;
+	uint8_t *mem = (uint8_t *) (((uint64_t) shmem + 4095) & ~4095);
 
-	vSendString("Entered probe task");
-
-	/* Remove compiler warning about unused parameter. */
 	(void) pvParameters;
 
-	while(1){
-		// Wait until the priming was done
-		xQueueReceive(queue, &queue_rx_val, portMAX_DELAY);
+	vSendString("[probe_task] Starting");
 
-		// Check whether we got the correct value from the queue
-		if(queue_rx_val == rx_val){
-			pre_time = goldfish_rtc_read_time(RTC_ADDR_PTR);
+	for(int i = 0; i < NUM_TEST_ROUNDS; i++){
 
-			tlb_access(shmem, NUM_TLB_ENTRIES, descending);
+		// Prime the TLB with our mappings
+		// always in ascending order
+		tlb_access(mem, NUM_TLB_ENTRIES, 0);
 
-			post_time = goldfish_rtc_read_time(RTC_ADDR_PTR);
+		// Wait for the adversary to run
+		(void)new_timeslice_rdcycle;
+		new_timeslice_ctx_swtch();
 
-			descending = !descending;
+		// Take the before measurement
+		pre_time = rdcycle();
 
-			diff = post_time - pre_time;
+		// Touch all pages again
+		// always in descending order, to maximize the
+		// overlap with the primed entries (no self-eviction)
+		tlb_access(mem, NUM_TLB_ENTRIES, 1);
 
-			if(diff >= prev_diff){
-				sprintf(buf, "Num cycles: %lu, diff to prev: +%lu", diff, (diff - prev_diff));
-			} else {
-				sprintf(buf, "Num cycles: %lu, diff to prev: -%lu", diff, (prev_diff - diff));
-			}
+		// Take the after measurement
+		post_time = rdcycle();
 
-			vSendString(buf);
+		// Send TLB dump trigger
+		// The trigger is decremented on every context switch
+		// so this sets a timeout to stop dumping once the
+		// RTOS VM is killed
+		/*__asm volatile(
+			"csrrw x0, 0x802, %0\n"
+			:: "r"(5)
+			:
+		);*/
 
-			prev_diff = diff;
+		diff = (post_time - pre_time);
 
-			queue_rx_val = 0;
+		if(diff >= prev_diff){
+			sprintf(buf, "cycles: %lu, diff to prev: +%lu", diff, (diff - prev_diff));
 		} else {
-			vSendString("[probe_task] Read wrong value from queue");
-			sprintf(buf, "\tval: 0x%lx", queue_rx_val);
-			vSendString(buf);
+			sprintf(buf, "cycles: %lu, diff to prev: -%lu", diff, (prev_diff - diff));
 		}
+
+		vSendString(buf);
+
+		prev_diff = diff;
 	}
+
+	vSendString("[probe_task] Done!");
+
+	// We finished what we wanted to do
+	// Wait for read-out of statistics
+	while(1){}
 }
 
 /*-----------------------------------------------------------*/
@@ -138,18 +154,22 @@ int isolation_bench(void)
 {
 	vSendString("Starting isolation benchmark");
 
-	queue = xQueueCreate(1, sizeof(uint64_t));
+	uint64_t cyc1 = 0, cyc2 = 0;
+	__asm volatile(
+		"csrrs %0, cycle, x0\n	\
+		 csrrs %1, cycle, x0\n"
+		 : "=r"(cyc1), "=r"(cyc2)
+		 ::
+	);
 
-	if(!queue){
-		vSendString("Queue creation failed!");
+	char buf[256];
+	sprintf(buf, "cyc1 = 0x%lx, cyc2 = 0x%lx, diff = 0x%lx", cyc1, cyc2, cyc2-cyc1);
+	vSendString(buf);
 
-		return -1;
-	}
+	//xTaskCreate(probe_task, "Probe", configMINIMAL_STACK_SIZE * 2U, NULL, PROBE_TASK_PRIO, NULL);
 
-	xTaskCreate(prime_task, "Prime", configMINIMAL_STACK_SIZE * 2U, NULL, PRIME_TASK_PRIO, NULL);
-	xTaskCreate(probe_task, "Probe", configMINIMAL_STACK_SIZE * 2U, NULL, PROBE_TASK_PRIO, NULL);
-
-	vTaskStartScheduler();
+	//vTaskStartScheduler();
+	probe_task(NULL);
 
 	return 0;
 }
