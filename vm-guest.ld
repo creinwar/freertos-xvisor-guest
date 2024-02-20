@@ -3,118 +3,131 @@ ENTRY( _start )
 
 MEMORY
 {
-	/* Fake ROM area */
-	ram (rxa) : ORIGIN = 0x60000000, LENGTH = 512K
+    ram (rxa) : ORIGIN = 0x60000000, LENGTH = 512K
+    dspm (rwa) : ORIGIN = 0x61000000, LENGTH = 16k
+    ispm (rwx) : ORIGIN = 0x62000000, LENGTH = 8k
 }
 
 SECTIONS
 {
-	.init :
-	{
-		_text = .;
+    .init : ALIGN(16)
+    {
+        _text = .;
         __link_start = .;
-		KEEP (*(SORT_NONE(.init)))
-	} > ram
-	
-	.text :
-	{
-		*(.text.unlikely .text.unlikely.*)
-		*(.text.startup .text.startup.*)
-		*(.text .text.*)
-		*(.gnu.linkonce.t.*)
-	} > ram
-	
-	.fini :
-	{
-		KEEP (*(SORT_NONE(.fini)))
-		_etext = .;
-	} > ram
+        KEEP (*(SORT_NONE(.init)))
+    } > ram
 
-	.rodata.align ALIGN(4):
-	{
-		_rodata = .;
-	} > ram
+    .text : ALIGN(16)
+    {
+        *(.text.unlikely .text.unlikely.*)
+        *(.text.startup .text.startup.*)
+        *(.text .text.*)
+        *(.gnu.linkonce.t.*)
+    } > ram
 
-	.rodata.start :
-	{
-		_rodata_lma = LOADADDR(.rodata.start);
-	} > ram
+    .fini : ALIGN(16)
+    {
+        KEEP (*(SORT_NONE(.fini)))
+        _etext = .;
+    } > ram
 
-	.rodata :
-	{
-		*(.rdata)
-		*(.rodata .rodata.*)
-		*(.gnu.linkonce.r.*)
+    .rodata.align : ALIGN(16)
+    {
+        _rodata = .;
+    } > ram
 
-		. = ALIGN(4);
-		_erodata = .;
-	} > ram
+    .rodata.start :
+    {
+        _rodata_lma = LOADADDR(.rodata.start);
+    } > ram
 
-	.data.align :
-	{
-		. = ALIGN(4);
-		_data = .;
-	} > ram
+    .rodata :
+    {
+        *(.rdata)
+        *(.rodata .rodata.*)
+        *(.gnu.linkonce.r.*)
 
-	.data.start :
-	{
-		_data_lma = LOADADDR(.data.start);
-	} > ram
+        . = ALIGN(16);
+        _erodata = .;
+    } > ram
 
-	.data :
-	{
-		*(.data .data.*)
-		*(.gnu.linkonce.d.*)
-		. = ALIGN(8);
-		PROVIDE( __global_pointer$ = . + 0x800 );
-		*(.sdata .sdata.*)
-		*(.sdata2 .sdata2.*)
-		*(.gnu.linkonce.s.*)
-		. = ALIGN(8);
-		*(.srodata.cst16)
-		*(.srodata.cst8)
-		*(.srodata.cst4)
-		*(.srodata.cst2)
-		*(.srodata .srodata.*)
+    .data.align :
+    {
+        . = ALIGN(16);
+        _data = .;
+    } > ram
 
-		. = ALIGN(4);
-		_edata = .;
-	} > ram
+    .data.start :
+    {
+        _data_lma = LOADADDR(.data.start);
+    } > ram
+
+    .data :
+    {
+        *(.data .data.*)
+        *(.gnu.linkonce.d.*)
+        . = ALIGN(8);
+        PROVIDE( __global_pointer$ = . + 0x800 );
+        *(.sdata .sdata.*)
+        *(.sdata2 .sdata2.*)
+        *(.gnu.linkonce.s.*)
+        . = ALIGN(8);
+        *(.srodata.cst16)
+        *(.srodata.cst8)
+        *(.srodata.cst4)
+        *(.srodata.cst2)
+        *(.srodata .srodata.*)
+
+        . = ALIGN(16);
+        _edata = .;
+    } > ram
+
+    . = ALIGN(16);
 
     __link_end = .;
 
-	.bss.align :
-	{
-		. = ALIGN(4);
-		_bss = .;
-	} > ram
+    .ispm ORIGIN(ispm) : ALIGN(16)
+    {
+        __ispm_start = .;
+        __ispm_load_start = LOADADDR(.ispm);
+        *(.ispm)
+        *(.ispm.*)
+        . = ALIGN(16);
+        __ispm_end = .;
+        __ispm_load_end = LOADADDR(.ispm) + SIZEOF(.ispm);
+    } AT>ram
 
-	.bss.start :
-	{
-		_bss_lma = LOADADDR(.bss.start);
-	} > ram
+    .bss.align :
+    {
+        . = ALIGN(16);
+        _bss = .;
+    } > ram
 
-	.bss :
-	{
-		*(.sbss*)
-		*(.gnu.linkonce.sb.*)
-		*(.bss .bss.*)
-		*(.gnu.linkonce.b.*)
-		*(COMMON)
+    .bss.start :
+    {
+        _bss_lma = LOADADDR(.bss.start);
+    } > ram
 
-		. = ALIGN(4);
-		_ebss = .;
-	} > ram
+    .bss :
+    {
+        *(.sbss*)
+        *(.gnu.linkonce.sb.*)
+        *(.bss .bss.*)
+        *(.gnu.linkonce.b.*)
+        *(COMMON)
 
-	. = ALIGN(16);
-	_end = .;
+        . = ALIGN(16);
+        _ebss = .;
+    } > ram
 
-	.stack ALIGN(16):
-	{
-		. = ALIGN(16);
-		. += __stack_size;
-		. = ALIGN(16);
-		_stack_top = .;
-	} > ram
+    . = ALIGN(16);
+    _end = .;
+
+    .stack ORIGIN(dspm) : ALIGN(16)
+    {
+        . += __stack_size;
+        . = ALIGN(16);
+        _stack_top = .;
+    }
 
 }

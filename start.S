@@ -43,6 +43,30 @@ _start:
 	li   a1, PRIM_HART
 	bne  a0, a1, secondary
 
+	// First relocate the I$ SPM code if there is any
+	la t0, __ispm_start
+	la t2, __ispm_end
+	beq t0, t2, _no_ispm
+
+	la t1, ispm_link_start_val
+	LOAD t1, 0(t1)
+	beq t0, t1, _no_ispm
+
+.option push
+.option norelax
+	// This is needed to get the address in the binary
+	la t0, __ispm_load_start
+	la t2, __ispm_load_end
+.option pop
+
+_ispm_relocate:
+	LOAD t3, 0(t0)	// Load from loaded address
+	STOR t3, 0(t1)	// Write to link address
+	addi t0, t0, REGSIZE
+	addi t1, t1, REGSIZE
+	blt t0, t2, _ispm_relocate
+
+_no_ispm:
 	// If we need to relocate, do that now
 	la t0, __link_start	// t0 contains the address the code was loaded to
 	la t1, link_start_val
@@ -110,13 +134,14 @@ secondary:
 	j secondary
 	.cfi_endproc
 
+.align 4
 gp_load:
 	.dword __global_pointer$
 sp_load:
 	.dword _stack_top
 link_start_val:
 	.dword __link_start
-link_end_val:
-	.dword __link_end
+ispm_link_start_val:
+	.dword __ispm_start
 relocation_end_exec:
 	.dword _relocation_done
