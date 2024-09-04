@@ -21,7 +21,7 @@
 #define PROBE_TASK_PRIO	( tskIDLE_PRIORITY )
 
 #define NUM_TLB_ENTRIES 64
-#define NUM_TEST_ROUNDS 1000
+#define NUM_TEST_ROUNDS 10000
 #define TIMESLICE_THRESH 1000000
 
 /*-----------------------------------------------------------*/
@@ -43,11 +43,11 @@ static inline uint64_t rdcycle(void)
 	return cyc;
 }
 
-static inline uint64_t read_clear_ctxt_swtch(void)
+static inline uint64_t read_ctxt_swtch(void)
 {
 	uint64_t cyc = 0;
 	__asm volatile(
-		"csrrci %0, 0x5DB, 1\n"
+		"csrrs %0, 0x5DB, x0\n"
 		: "=r"(cyc)
 		::
 	);
@@ -76,10 +76,10 @@ static __attribute__((noinline)) void new_timeslice_ctx_swtch(void)
 		:::
 	);
 
-	while(!read_clear_ctxt_swtch()){}
+	while(!read_ctxt_swtch()){}
 
 	__asm volatile (
-		"csrrci x0, 0x5DB, 2\n"
+		"csrrw x0, 0x5DB, x0\n"
 		:::
 	);
 }

@@ -27,7 +27,8 @@
 .balign 128, 0
 .option norvc
 .global freertos_vector_table
-.section .ispm
+/*.section .ispm*/
+.section .init
 freertos_vector_table:
 IRQ_0:
         j freertos_risc_v_exception_handler

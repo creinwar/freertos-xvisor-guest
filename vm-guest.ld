@@ -4,7 +4,7 @@ ENTRY( _start )
 MEMORY
 {
     ram (rxa) : ORIGIN = 0x60000000, LENGTH = 512K
-    dspm (rwa) : ORIGIN = 0x61000000, LENGTH = 16k
+    dspm (rwa) : ORIGIN = 0x61000000, LENGTH = 8k
     ispm (rwx) : ORIGIN = 0x62000000, LENGTH = 8k
 }
 
@@ -119,6 +119,13 @@ SECTIONS
         . = ALIGN(16);
         _ebss = .;
     } > ram
+
+    /* .stack : ALIGN(16) */
+    /* { */
+    /*     . += __stack_size; */
+    /*     . = ALIGN(16); */
+    /*     _stack_top = .; */
+    /* } > ram */
 
     . = ALIGN(16);
     _end = .;

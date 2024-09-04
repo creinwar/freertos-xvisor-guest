@@ -11,6 +11,7 @@
 .type tlb_access, @function
 .align 4
 .section .ispm, "awx"
+/*.section .text, "awx"*/
 tlb_access:
 beq a1, x0, 2f /* Don't touch any pages? Sure! */
 

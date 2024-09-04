@@ -22,7 +22,7 @@ CFLAGS  = -march=rv64imafdc_zicsr_zifencei -mabi=lp64d -mcmodel=medany \
 LDFLAGS = -nostartfiles -Tvm-guest.ld \
 	-march=rv64imafdc_zicsr_zifencei -mabi=lp64d -mcmodel=medany \
 	-Xlinker --gc-sections \
-	-Xlinker --defsym=__stack_size=300 \
+	-Xlinker --defsym=__stack_size=8192 \
 	-Xlinker -Map=$(BUILD_DIR)/xvisor-guest.map
 
 ifeq ($(DEBUG), 1)
